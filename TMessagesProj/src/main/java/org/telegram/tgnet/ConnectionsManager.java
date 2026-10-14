@@ -79,6 +79,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.net.ssl.SSLException;
+
+import com.nykiss.ghost.GhostState;
+import com.nykiss.ghost.NykissConfig;
+import org.telegram.tgnet.tl.TL_account;
+
 public class ConnectionsManager extends BaseController {
 
     public final static int ConnectionTypeGeneric = 1;
@@ -488,6 +493,38 @@ public class ConnectionsManager extends BaseController {
                     downloadSize = ((TLRPC.TL_upload_getCdnFile) object).limit;
                 }
             }
+            // ── NYKISS Ghost Mode ──────────────────────────────────────────
+            // Block typing indicator and upload progress notifications
+            if (!NykissConfig.sendUploadProgress &&
+                    (object instanceof TLRPC.TL_messages_setTyping ||
+                     object instanceof TLRPC.TL_messages_setEncryptedTyping)) {
+                return;
+            }
+
+            // Force offline status instead of online
+            if (!NykissConfig.sendOnlinePackets && object instanceof TL_account.updateStatus) {
+                ((TL_account.updateStatus) object).offline = true;
+            }
+
+            // Block read receipt packets (return fake success to caller)
+            if (!GhostState.shouldSendReadPacket() &&
+                    (object instanceof TLRPC.TL_messages_readHistory ||
+                     object instanceof TLRPC.TL_messages_readEncryptedHistory ||
+                     object instanceof TLRPC.TL_messages_readDiscussion ||
+                     object instanceof TLRPC.TL_messages_readMessageContents ||
+                     object instanceof TLRPC.TL_channels_readHistory ||
+                     object instanceof TLRPC.TL_channels_readMessageContents)) {
+                final RequestDelegate completionBlock = onComplete;
+                if (completionBlock != null) {
+                    TLRPC.TL_messages_affectedMessages fake = new TLRPC.TL_messages_affectedMessages();
+                    fake.pts = -1;
+                    fake.pts_count = 0;
+                    Utilities.stageQueue.postRunnable(() -> completionBlock.run(fake, null));
+                }
+                return;
+            }
+            // ── end Ghost Mode ─────────────────────────────────────────────
+
             native_sendRequest(currentAccount, buffer.address, flags, datacenterId, connectionType, immediate, requestToken, downloadSize);
         } catch (Exception e) {
             FileLog.e(e);

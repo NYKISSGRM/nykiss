@@ -141,6 +141,8 @@ import java.util.stream.Collectors;
 
 import me.vkryl.core.BitwiseUtils;
 
+import com.nykiss.recall.RecallStorage;
+
 public class MessagesController extends BaseController implements NotificationCenter.NotificationCenterDelegate {
 
     public int lastKnownSessionsCount;
@@ -9346,6 +9348,17 @@ public class MessagesController extends BaseController implements NotificationCe
                 } else {
                     markDialogMessageAsDeleted(dialogId, messages);
                 }
+                // ── NYKISS Anti-Recall: save before deletion ───────────────
+                final int finalTopicId = topicId;
+                for (int a = 0; a < messages.size(); a++) {
+                    Integer mid = messages.get(a);
+                    if (mid == null) continue;
+                    MessageObject obj = dialogMessagesByIds.get(mid);
+                    if (obj != null && obj.messageOwner != null) {
+                        RecallStorage.saveDeletedMessage(currentAccount, obj.messageOwner, dialogId);
+                    }
+                }
+                // ── end Anti-Recall ────────────────────────────────────────
                 getMessagesStorage().markMessagesAsDeleted(dialogId, messages, true, forAll, 0, topicId);
                 getMessagesStorage().updateDialogsWithDeletedMessages(dialogId, channelId, messages, null);
             }
